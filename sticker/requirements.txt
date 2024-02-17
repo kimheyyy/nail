@@ -1,0 +1,12 @@
+albumentations
+transformers 
+segmentation-models-pytorch
+matplotlib
+torch 
+torchaudio 
+torchvision 
+pandas
+timm == 0.4.12
+tqdm 
+pycocotools
+scipy
