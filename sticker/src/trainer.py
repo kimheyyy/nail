@@ -5,6 +5,7 @@
 """
 
 import os
+import optuna
 from dataset_builder import NailDataset
 
 import segmentation_models_pytorch as smp
@@ -28,7 +29,6 @@ class Trainer:
         self.is_cont = True
         config_path = get_final_path(1, ['config.json'])
         with open(config_path, 'r') as f: self.config = json.load(f)
-        #self.device = torch.device("mps" if torch.cuda.is_available() else "cpu")
         processed_base_data_path = get_final_path(1, ['dataset', 'processed'])
         self.x_train_dir = os.path.join(processed_base_data_path, 'train')
         self.y_train_dir = os.path.join(processed_base_data_path, 'train_labels')
@@ -36,38 +36,84 @@ class Trainer:
         self.x_valid_dir = os.path.join(processed_base_data_path, 'val')
         self.y_valid_dir = os.path.join(processed_base_data_path, 'val_labels')
 
-    def get_model(self):
+    def objective(self, trial):
+        # Define the hyperparameters
+        lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
+        encoder = trial.suggest_categorical("encoder", ["resnet101", "efficientnet-b4"])
+        encoder_weights = trial.suggest_categorical("encoder_weights", ["imagenet", "none"])
+        activation = trial.suggest_categorical("activation", ["sigmoid"])
 
-        ENCODER = 'resnet101'
-        ENCODER_WEIGHTS = 'imagenet'
-        CLASSES = self.class_names
-        ACTIVATION = 'sigmoid' # could be None for logits or 'softmax2d' for multiclass segmentation
-
-        # create segmentation model with pretrained encoder
-        model = smp.DeepLabV3Plus(
-            encoder_name=ENCODER, 
-            encoder_weights=ENCODER_WEIGHTS, 
-            classes=len(CLASSES), 
-            activation=ACTIVATION,
+        model = smp.Unet(
+            encoder_name=encoder, 
+            encoder_weights=encoder_weights, 
+            classes=len(self.class_names), 
+            activation=activation,
         )
 
-        preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
-        preprocessing_fn_path = get_final_path(1, ['model', 'preprocessing_fn.pkl'])
-        pickle.dump(preprocessing_fn, open(preprocessing_fn_path, 'wb'))
+        preprocessing_fn = smp.encoders.get_preprocessing_fn(encoder, encoder_weights)
+        train_dataset, valid_dataset = self.get_datasets(preprocessing_fn)
+
+        train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=0)
+        valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=0)
+
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr) #weight_decay=1e-4
+        loss = utils.losses.DiceLoss()
+        metrics = [utils.metrics.IoU(threshold=0.5)]
+
+        train_epoch = utils.train.TrainEpoch(
+                                            model, 
+                                            loss=loss,
+                                            metrics=metrics, 
+                                            optimizer=optimizer,
+                                            device=self.device,
+                                            verbose=True,
+        )
+
+        valid_epoch = utils.train.ValidEpoch(
+                                        model, 
+                                        loss=loss, 
+                                        metrics=metrics, 
+                                        device=self.device,
+                                        verbose=True,
+        )
+
+        max_iou = 0
+        for i in range(15):  # Run for a few epochs
+            train_epoch.run(train_loader)
+            valid_logs = valid_epoch.run(valid_loader)
+            max_iou = max(max_iou, valid_logs['iou_score'])
+
+        return max_iou
+
+    def get_model(self):
+
+        study = optuna.create_study(direction="maximize")
+        study.optimize(self.objective, n_trials=10)
+
+        best_trial = study.best_trial
+
+        model = smp.Unet(
+            encoder_name=best_trial.params['encoder'], 
+            encoder_weights=best_trial.params['encoder_weights'], 
+            classes=len(self.class_names), 
+            activation=best_trial.params['activation'],
+        )
+
+        preprocessing_fn = smp.encoders.get_preprocessing_fn(best_trial.params['encoder'], best_trial.params['encoder_weights'])
 
         return model, preprocessing_fn
     
     def get_datasets(self, preprocessing_fn):
 
-        train_dataset = NailDataset(self.x_train_dir, self.y_train_dir, augmentation = get_training_augmentation(), preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
-        valid_dataset = NailDataset(self.x_valid_dir, self.y_valid_dir, augmentation = get_validation_augmentation(), preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
+        train_dataset = NailDataset(self.x_train_dir, self.y_train_dir, augmentation = None, preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
+        valid_dataset = NailDataset(self.x_valid_dir, self.y_valid_dir, augmentation = None, preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
 
         return train_dataset, valid_dataset
 
 
     def train(self, model, train_dataset, valid_dataset):
 
-        train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=0)
+        train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=0)
         valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=0)
 
         TRAINING = True
@@ -77,19 +123,16 @@ class Trainer:
 
 
         # define loss function
-        #loss = smp.utils.losses.DiceLoss()
         loss = utils.losses.DiceLoss()
 
         # define metrics
-        #metrics = [smp.utils.metrics.IoU(threshold=0.5),]
-
         metrics = [
             utils.metrics.IoU(threshold=self.config['iou_threshold']),
         ]
 
         # define optimizer
-        optimizer = torch.optim.Adam([ 
-            dict(params=model.parameters(), lr=self.config['lr']),
+        optimizer = torch.optim.AdamW([ 
+            dict(params=model.parameters(), lr=best_trial.params['lr']),
         ])
 
         # define learning rate scheduler (not used in this NB)
@@ -108,7 +151,6 @@ class Trainer:
                                             metrics=metrics, 
                                             optimizer=optimizer,
                                             device=self.device,
-                                            #device='mps',
                                             verbose=True,
         )
 
@@ -117,7 +159,6 @@ class Trainer:
                                         loss=loss, 
                                         metrics=metrics, 
                                         device=self.device,
-                                        #device='mps',
                                         verbose=True,
         )
 
