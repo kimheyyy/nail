@@ -86,7 +86,7 @@ class Predictor:
 
     def img_preprocess(self):
 
-        return SingleNail(self.img_path, augmentation = get_validation_augmentation(), preprocessing = get_preprocessing(self.preprocessing_fn), class_rgb_values = self.select_class_rgb_values )[0]
+        return SingleNail(self.img_path, augmentation = None, preprocessing = get_preprocessing(self.preprocessing_fn), class_rgb_values = self.select_class_rgb_values )[0]
 
     def get_predicted_mask(self, processed_img):
 
