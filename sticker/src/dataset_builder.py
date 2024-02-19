@@ -48,6 +48,9 @@ class NailDataset(torch.utils.data.Dataset):
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
         image = cv2.imread(image_path)
+        
+        image = self.apply_clahe(image)
+        
         if image is None:
             raise ValueError(f"이미지를 불러올 수 없습니다. 파일이 손상되었거나 지원하지 않는 형식일 수 있습니다: {image_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -75,6 +78,19 @@ class NailDataset(torch.utils.data.Dataset):
             image, mask = sample['image'], sample['mask']
             
         return image, mask
+    
+    def apply_clahe(self, image):
+        # CLAHE 적용 함수
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        if image.ndim == 3 and image.shape[2] == 3:  # 컬러 이미지인 경우
+            lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)  # LAB 컬러 스페이스로 변환
+            l, a, b = cv2.split(lab)
+            l = clahe.apply(l)
+            lab = cv2.merge((l, a, b))
+            image = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+        else:  # 그레이스케일 이미지인 경우
+            image = clahe.apply(image)
+        return image
         
     def __len__(self):
         # return length of 
