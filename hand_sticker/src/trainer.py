@@ -38,13 +38,13 @@ class Trainer:
 
     def get_model(self):
 
-        ENCODER = 'resnet101'
-        ENCODER_WEIGHTS = 'imagenet'
+        ENCODER = 'efficientnet-b5'
+        ENCODER_WEIGHTS = 'advprop'
         CLASSES = self.class_names
         ACTIVATION = 'sigmoid' # could be None for logits or 'softmax2d' for multiclass segmentation
 
         # create segmentation model with pretrained encoder
-        model = smp.DeepLabV3Plus(
+        model = smp.Unet(
             encoder_name=ENCODER, 
             encoder_weights=ENCODER_WEIGHTS, 
             classes=len(CLASSES), 
@@ -59,15 +59,15 @@ class Trainer:
     
     def get_datasets(self, preprocessing_fn):
 
-        train_dataset = NailDataset(self.x_train_dir, self.y_train_dir, augmentation = get_training_augmentation(), preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
-        valid_dataset = NailDataset(self.x_valid_dir, self.y_valid_dir, augmentation = get_validation_augmentation(), preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
+        train_dataset = NailDataset(self.x_train_dir, self.y_train_dir, augmentation = None, preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
+        valid_dataset = NailDataset(self.x_valid_dir, self.y_valid_dir, augmentation = None, preprocessing = get_preprocessing(preprocessing_fn), class_rgb_values = self.select_class_rgb_values)
 
         return train_dataset, valid_dataset
 
 
     def train(self, model, train_dataset, valid_dataset):
 
-        train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=0)
+        train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
         valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=0)
 
         TRAINING = True

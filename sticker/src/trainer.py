@@ -38,7 +38,7 @@ class Trainer:
 
     def get_model(self):
 
-        ENCODER = 'efficientnet-b4'
+        ENCODER = 'efficientnet-b5'
         ENCODER_WEIGHTS = 'advprop' #advprop,imagenet
         CLASSES = self.class_names
         ACTIVATION = 'sigmoid' # could be None for logits or 'softmax2d' for multiclass segmentation
@@ -144,7 +144,7 @@ class Trainer:
                     torch.save(model, best_model_path)
                     print('Model saved!')
                 
-                lr_scheduler.step()
+                #lr_scheduler.step()
 
     def main(self):
 
